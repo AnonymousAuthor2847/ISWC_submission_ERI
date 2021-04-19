@@ -1,0 +1,202 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+theme_sw_rp <- theme_minimal
+
+theme_presentation <- theme_classic()
+theme_set(theme_minimal(base_size = 12))
+
+theme_sw_rp <- function (base_size = 12, base_family= "serif", base_line_size = base_size/22, base_rect_size = base_size/22) {
+  theme_bw(base_size = base_size,
+           base_family = base_family,
+           base_line_size = base_line_size,
+           base_rect_size = base_rect_size) %+replace% 
+  theme(axis.ticks = element_blank(), 
+        axis.text.y = element_text(color = "black",size=10, margin=margin(r = 6),vjust=NULL,hjust=1),
+        axis.text.x = element_text(size=10,margin=margin(t = 6,r=6)),
+        #axis.title.x = element_text(margin(t=20,r=0,b=0,l=0)), 
+        #axis.title.y =  element_text(margin(t=0,r=20,b=0,l=0)),
+        legend.background = element_blank(), 
+        legend.text = element_text(size=12), 
+        legend.key = element_blank(),
+        legend.position = "top",
+        panel.background = element_blank(), 
+        panel.border = element_blank(), 
+        strip.background = element_blank(), 
+        plot.background = element_blank(),
+        #plot.margin = unit(c(0.5,0.5,0.5,0.5),"cm"),
+        complete = TRUE)
+}
+
+theme_set(theme_sw_rp(base_size = 12, base_family = "serif"))
+
+setwd("~/Documents/UZH-IFI/Research/Embeddings")
+library(ggplot2)
+library(plyr)
+library(arsenal) 
+library(readxl)
+library(dplyr)
+
+cnames <-c("metric","emb_algorithm","source","target","test_case","sim","std","J")
+cnames2 <-c("dataset","metric","emb_algorithm","source","target","test_case","sim","std","J")
+
+dda <- read.csv("data_results/dda.csv",header = F)
+colnames(dda) <- cnames
+dda$dataset <- "dda"
+dda_base <- read.csv("data_results/dda_base.csv",header = F)
+colnames(dda_base) <- cnames2
+
+ppi <- read.csv("data_results/ppi.csv",header=F)
+colnames(ppi)<- cnames
+ppi$dataset <- "ppi"
+ppi_base <- read.csv("data_results/ppi_base.csv",header = F)
+colnames(ppi_base) <- cnames2
+
+fb <- read.csv("data_results/fb.csv",header=F)
+colnames(fb)<- cnames2
+
+wn <- read.csv("data_results/wnrr.csv",header=F)
+colnames(wn)<- cnames2
+
+data <- rbind(dda,dda_base,ppi,ppi_base,fb,wn)
+data <- data %>% filter(source!=target)
+
+```
+
+```{r}
+tc.info <-aggregate(data[, 6:9], list(data$test_case,data$dataset), mean)
+tc.info$dataset <- NULL
+tc.info$sim <- NULL
+tc.info$std <- NULL
+tc.info
+spread(tc.info)
+```
+
+```{r}
+#MU for 10 base comparisons
+target_base <- c("base_1","base_2","base_3","base_4","base_5","base_6","base_7","base_9","base_10")
+data_base <- data %>% filter(test_case=="base",source %in% target_base,target %in% target_base)
+base_10 <- data_base %>% filter(metric=="cosine") %>% select(dataset,emb_algorithm,sim)
+mu.info <-aggregate(data_base[, 6:7], list(data_base$test_case,data_base$dataset,data_base$emb_algorithm,data_base$metric), mean)
+mu.info %>% filter(Group.1 == "base",Group.4 == "cosine")
+
+mu.info$Group.1 <- NULL
+mu.info$std <- NULL
+mu.info$J <- NULL
+colnames(mu.info) <- c("dataset","emb_algorithm","metric","mu")
+
+data <- join(data,mu.info)
+```
+
+```{r}
+#MU for 5 base comparisons
+target_base = c("base_1","base_2","base_3","base_4","base_5")
+data_base <- data %>% filter(test_case=="base",source %in% target_base,target %in% target_base)
+base_5 <- data_base %>% filter(metric=="cosine") %>% select(dataset,emb_algorithm,sim)
+mu.info <-aggregate(data_base[, 6:7], list(data_base$test_case,data_base$dataset,data_base$emb_algorithm,data_base$metric), mean)
+mu.info %>% filter(Group.4=="cosine")
+```
+
+```{r}
+#MU for 3 base comparisons
+target_base = c("base_1","base_2","base_3")
+data_base <- data %>% filter(test_case=="base",source %in% target_base,target %in% target_base)
+base_3 <- data_base %>% filter(metric=="cosine") %>% select(dataset,emb_algorithm,sim)
+mu.info <-aggregate(data_base[, 6:7], list(data_base$test_case,data_base$dataset,data_base$emb_algorithm,data_base$metric), mean)
+mu.info %>% filter(Group.4=="cosine")
+```
+
+Comparison of comparison - t-test?
+```{r}
+base_3$comp <- "base3"
+base_5$comp <- "base5"
+base_10$comp <- "base10"
+base_comparison <- rbind(base_3,base_5,base_10)
+
+#iterate through every emb_method and dataset
+algo="transe"
+dat="wnrr"
+
+t_test(base_comparison%>%filter(emb_algorithm==algo,dataset==dat),sim~comp)
+
+
+```
+
+
+# Calculate ERI
+```{r}
+data$sim.mu <- (data$sim/data$mu)
+data$ERI <- ifelse(data$sim.mu<1,data$sim.mu*data$J,data$J)
+eri <- tc.info <- aggregate(data[, 6:12], list(data$test_case,data$dataset,data$metric,data$emb_algorithm), mean)
+eri <- eri %>% filter(Group.3 == "cosine", Group.1 != "base") %>% select(-c(dataset,J,std,Group.3,sim.mu))
+colnames(eri) <- c("tc","dataset","algo","sim","mu","ERI")
+eri
+```
+
+```{r}
+eri$case <- ifelse(grepl("1_",eri$tc),"TC 1","TC 2")
+eri$version <- substring(eri$tc, 3)
+eri$version <- as.numeric(eri$version)
+
+eri$dataset <- factor(eri$dataset, levels= c("ppi","dda","fb15k","wnrr"),labels=c("PPI","DDA","FB","WN"))
+eri$algo <- factor(eri$algo, levels= c("DeepWalk","GraRep","LINE","rescal","transe"),labels=c("DeepWalk","GraRep","LINE","RESCAL","TransE"))
+
+ggplot(eri, aes(x=version,y=ERI)) + 
+  geom_point(aes(shape=case,color=algo),size=1.5) + 
+  geom_line(aes(linetype=case,color=algo))+
+  facet_grid(~dataset) +
+  scale_color_brewer(palette="Dark2") +
+  scale_linetype_manual(values=c("twodash", "dashed")) +
+  labs(color="",shape="",linetype="") +
+  ylim(range(0,1)) +
+  theme(
+    strip.text.x = element_text(size=13,face="bold"),
+    legend.box="vertical")
+
+ggsave("figures/eri_eval.pdf",device = "pdf",width = 22, height = 9.5, units = "cm")
+```
+
+```{r}
+ggplot(eri, aes(x=version,y=sim)) + 
+  geom_point(aes(shape=case,color=algo),size=1.5) + 
+  geom_line(aes(linetype=case,color=algo))+ geom_line(aes(y=mu,color=algo),alpha=0.75)+
+  facet_grid(~dataset) +
+  scale_color_brewer(palette="Dark2") +
+  scale_linetype_manual(values=c("twodash", "dashed")) +
+  labs(color="",shape="",linetype="") +
+  ylim(range(0,1)) +
+  theme(
+    strip.text.x = element_text(size=13,face="bold"),
+    legend.position="none")
+
+ggsave("figures/sim_eval.pdf",device = "pdf",width = 22, height = 7, units = "cm")
+```
+
+# Shortcomings of SOTA
+
+```{r}
+base <- data %>% filter(test_case=="base")
+base$dataset <- factor(base$dataset, levels= c("ppi","dda","fb15k","wnrr"),labels=c("PPI","DDA","FB","WN"))
+base$emb_algorithm <- factor(base$emb_algorithm, levels= c("DeepWalk","GraRep","LINE","rescal","transe"),labels=c("DeepWalk","GraRep","LINE","RESCAL","TransE"))
+
+ggplot(base%>%filter(metric=="cosine"), aes(x=sim,fill=emb_algorithm,color=emb_algorithm)) + geom_density(alpha=0.5) + facet_wrap(~dataset) + ylim(range(0,1)) +
+  labs(fill="",color="")
+
+
+ggplot(base%>%filter(metric=="cosine",dataset %in% c("PPI","FB")), aes(x=sim,fill=emb_algorithm,color=emb_algorithm)) + geom_density(alpha=0.5) + facet_wrap(~dataset) + xlab("Cosine NB Similarity") + ylab("Density") +
+  labs(fill="",color="") + 
+  theme(strip.text.x = element_text(size=13,face="bold"),
+        axis.title.x = element_text(vjust=-1.25),
+        axis.title.y = element_text(vjust=2.5))
+
+ggsave("figures/sim_dist.pdf",device = "pdf",width = 18, height = 9, units = "cm")
+
+```
+
